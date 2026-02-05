@@ -2,6 +2,7 @@
  * Order Service
  * 
  * Business logic layer for order operations
+ * Includes OTP validation for secure delivery confirmation
  */
 
 const OrderModel = require('../models/order.model');
@@ -145,7 +146,7 @@ const updateOrderStatus = async (internalOrderId, status, notes = null) => {
 };
 
 /**
- * Assign driver to order
+ * Assign driver to order (generates OTP code)
  */
 const assignDriver = async (internalOrderId, driverId) => {
   if (USE_IN_MEMORY) {
@@ -153,6 +154,8 @@ const assignDriver = async (internalOrderId, driverId) => {
     if (order) {
       order.driver_id = driverId;
       order.status = 'assigned';
+      // Generate simple OTP for in-memory mode
+      order.otp_code = Math.random().toString(36).substring(2, 8).toUpperCase();
     }
     return order || null;
   }
@@ -165,6 +168,7 @@ const assignDriver = async (internalOrderId, driverId) => {
     if (order) {
       order.driver_id = driverId;
       order.status = 'assigned';
+      order.otp_code = Math.random().toString(36).substring(2, 8).toUpperCase();
     }
     return order || null;
   }
@@ -193,6 +197,56 @@ const cancelOrder = async (internalOrderId, reason = null) => {
       order.notes = `${order.notes || ''} | Cancelled: ${reason || 'No reason provided'}`;
     }
     return order || null;
+  }
+};
+
+/**
+ * Mark order as delivered with OTP validation
+ * This is the security handshake - recipient must provide correct OTP
+ */
+const markDelivered = async (internalOrderId, providedOTP) => {
+  if (USE_IN_MEMORY) {
+    const order = inMemoryOrders.find(o => o.internal_order_id === internalOrderId);
+    
+    if (!order) {
+      throw new Error('Order not found');
+    }
+    
+    if (!order.otp_code) {
+      throw new Error('No OTP code assigned to this order');
+    }
+    
+    if (order.otp_code.toUpperCase() !== providedOTP.toUpperCase()) {
+      throw new Error('Invalid OTP code');
+    }
+    
+    order.status = 'delivered';
+    order.notes = `${order.notes || ''} | Delivered with OTP validation`;
+    console.log(`✅ Order ${internalOrderId} delivered with valid OTP (in-memory)`);
+    return order;
+  }
+  
+  try {
+    return await OrderModel.markDelivered(internalOrderId, providedOTP);
+  } catch (error) {
+    // Re-throw OTP validation errors
+    if (error.message.includes('OTP') || error.message.includes('Invalid') || error.message.includes('not found')) {
+      throw error;
+    }
+    
+    console.warn(`⚠️ Database unavailable, using in-memory storage`);
+    const order = inMemoryOrders.find(o => o.internal_order_id === internalOrderId);
+    
+    if (!order) {
+      throw new Error('Order not found');
+    }
+    
+    if (order.otp_code?.toUpperCase() !== providedOTP.toUpperCase()) {
+      throw new Error('Invalid OTP code');
+    }
+    
+    order.status = 'delivered';
+    return order;
   }
 };
 
@@ -230,5 +284,7 @@ module.exports = {
   updateOrderStatus,
   assignDriver,
   cancelOrder,
+  markDelivered,
   getOrderStats
 };
+
