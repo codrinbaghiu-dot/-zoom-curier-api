@@ -2,7 +2,6 @@
  * Zoom Curier API - Universal Integrator
  * Main Entry Point
  */
-
 require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
@@ -13,6 +12,7 @@ const morgan = require('morgan');
 const webhookRoutes = require('./routes/webhook.routes');
 const orderRoutes = require('./routes/order.routes');
 const healthRoutes = require('./routes/health.routes');
+const financeRoutes = require('./routes/finance.routes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -40,6 +40,7 @@ app.get('/health', (req, res) => {
 app.use('/api/health', healthRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/finance', financeRoutes);
 
 // Error handling
 app.use(errorHandler);
@@ -47,7 +48,9 @@ app.use(errorHandler);
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Zoom Curier API running on port ${PORT}`);
-  console.log(`📡 Webhook endpoint: http://localhost:${PORT}/api/webhooks/orders`);
+  console.log(`📡 Webhook endpoint: http://localhost:${PORT}/api/webhooks/orders` );
+  console.log(`💰 Finance endpoint: http://localhost:${PORT}/api/finance` );
 });
 
 module.exports = app;
+
