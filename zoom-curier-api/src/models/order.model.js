@@ -2,6 +2,7 @@
  * Order Model
  * 
  * Database operations for the orders table
+ * Note: created_at and updated_at are handled automatically by MySQL
  */
 
 const db = require('../config/database');
@@ -17,36 +18,34 @@ const create = async (orderData) => {
       delivery_county, delivery_postal_code, delivery_country,
       recipient_name, recipient_phone, recipient_email,
       is_overflow, parent_carrier_id, aggregator_source,
-      cod_amount, cod_currency, total_weight, notes, raw_payload,
-      created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      cod_amount, cod_currency, total_weight, notes, raw_payload, otp_code
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   
   const params = [
     orderData.internal_order_id,
     orderData.external_order_id,
-    orderData.merchant_id,
-    orderData.service_level,
-    orderData.status,
-    orderData.pickup_address,
+    orderData.merchant_id || null,
+    orderData.service_level || 'lite',
+    orderData.status || 'pending',
+    orderData.pickup_address || null,
     orderData.delivery_address,
     orderData.delivery_city,
-    orderData.delivery_county,
-    orderData.delivery_postal_code,
-    orderData.delivery_country,
+    orderData.delivery_county || null,
+    orderData.delivery_postal_code || null,
+    orderData.delivery_country || 'RO',
     orderData.recipient_name,
     orderData.recipient_phone,
-    orderData.recipient_email,
+    orderData.recipient_email || null,
     orderData.is_overflow ? 1 : 0,
-    orderData.parent_carrier_id,
+    orderData.parent_carrier_id || null,
     orderData.aggregator_source,
-    orderData.cod_amount,
-    orderData.cod_currency,
-    orderData.total_weight,
-    orderData.notes,
-    orderData.raw_payload,
-    orderData.created_at,
-    orderData.updated_at
+    orderData.cod_amount || 0,
+    orderData.cod_currency || 'RON',
+    orderData.total_weight || null,
+    orderData.notes || null,
+    typeof orderData.raw_payload === 'string' ? orderData.raw_payload : JSON.stringify(orderData.raw_payload),
+    orderData.otp_code || null
   ];
   
   const result = await db.query(sql, params);
@@ -125,7 +124,7 @@ const findAll = async (filters = {}, limit = 50, offset = 0) => {
 const updateStatus = async (internalOrderId, status, notes = null) => {
   const sql = `
     UPDATE orders 
-    SET status = ?, notes = COALESCE(?, notes), updated_at = NOW()
+    SET status = ?, notes = COALESCE(?, notes)
     WHERE internal_order_id = ?
   `;
   
@@ -139,7 +138,7 @@ const updateStatus = async (internalOrderId, status, notes = null) => {
 const assignDriver = async (internalOrderId, driverId) => {
   const sql = `
     UPDATE orders 
-    SET driver_id = ?, status = 'assigned', updated_at = NOW()
+    SET driver_id = ?, status = 'assigned'
     WHERE internal_order_id = ?
   `;
   
@@ -153,7 +152,7 @@ const assignDriver = async (internalOrderId, driverId) => {
 const cancel = async (internalOrderId, reason = null) => {
   const sql = `
     UPDATE orders 
-    SET status = 'cancelled', notes = CONCAT(COALESCE(notes, ''), ' | Cancelled: ', COALESCE(?, 'No reason provided')), updated_at = NOW()
+    SET status = 'cancelled', notes = CONCAT(COALESCE(notes, ''), ' | Cancelled: ', COALESCE(?, 'No reason provided'))
     WHERE internal_order_id = ?
   `;
   
@@ -170,3 +169,4 @@ module.exports = {
   assignDriver,
   cancel
 };
+
