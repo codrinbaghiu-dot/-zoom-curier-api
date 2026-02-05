@@ -5,22 +5,20 @@
 const mysql = require('mysql2/promise');
 
 let pool = null;
+let inMemoryStore = [];
 
 const initializePool = async () => {
-  // Skip if using in-memory database
   if (process.env.USE_IN_MEMORY_DB === 'true') {
     console.log('📦 Using in-memory database (data will not persist)');
     return null;
   }
 
   try {
-    // Try DATABASE_URL first (Railway provides this)
-    if (process.env.DATABASE_URL || process.env.MYSQL_URL) {
-      const dbUrl = process.env.DATABASE_URL || process.env.MYSQL_URL;
+    if (process.env.MYSQL_URL || process.env.DATABASE_URL) {
+      const dbUrl = process.env.MYSQL_URL || process.env.DATABASE_URL;
       pool = mysql.createPool(dbUrl);
-      console.log('✅ Connected to MySQL via DATABASE_URL');
+      console.log('✅ Connected to MySQL via MYSQL_URL');
     } else {
-      // Fallback to individual variables
       pool = mysql.createPool({
         host: process.env.DB_HOST,
         port: process.env.DB_PORT || 3306,
@@ -33,8 +31,7 @@ const initializePool = async () => {
       });
       console.log('✅ Connected to MySQL via individual variables');
     }
-    
-    // Test connection
+
     const connection = await pool.getConnection();
     await connection.ping();
     connection.release();
@@ -47,7 +44,39 @@ const initializePool = async () => {
   }
 };
 
+const query = async (sql, params = []) => {
+  if (!pool) {
+    await initializePool();
+  }
+  
+  if (!pool) {
+    console.log('⚠️ Database unavailable, using in-memory storage');
+    return handleInMemory(sql, params);
+  }
+
+  try {
+    const [results] = await pool.execute(sql, params);
+    return results;
+  } catch (error) {
+    console.error('❌ Query failed:', error.message);
+    throw error;
+  }
+};
+
+const handleInMemory = (sql, params) => {
+  if (sql.trim().toUpperCase().startsWith('INSERT')) {
+    const id = inMemoryStore.length + 1;
+    inMemoryStore.push({ id, ...params });
+    return { insertId: id };
+  }
+  if (sql.trim().toUpperCase().startsWith('SELECT')) {
+    return inMemoryStore;
+  }
+  return [];
+};
+
 const getPool = () => pool;
 
-module.exports = { initializePool, getPool };
+module.exports = { initializePool, getPool, query };
+
 
