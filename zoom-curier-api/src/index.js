@@ -31,6 +31,11 @@ app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Root health check for Railway
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
+
 // Routes
 app.use('/api/health', healthRoutes);
 app.use('/api/webhooks', webhookRoutes);
