@@ -3,6 +3,7 @@
  * 
  * Handles order management operations (CRUD, status updates, driver assignment)
  * Includes LeadXpress WhatsApp integration for lifecycle notifications
+ * OTP validation required for delivery confirmation
  */
 
 const orderService = require('../services/order.service');
@@ -158,6 +159,7 @@ const updateOrderStatus = async (req, res, next) => {
 /**
  * Assign driver to order
  * POST /api/orders/:id/assign
+ * Generates OTP code for delivery handshake
  */
 const assignDriver = async (req, res, next) => {
   try {
@@ -180,7 +182,7 @@ const assignDriver = async (req, res, next) => {
       });
     }
     
-    // 🔔 Trigger WhatsApp notification for driver assignment
+    // 🔔 Trigger WhatsApp notification for driver assignment (includes OTP)
     const driver = {
       id: driver_id,
       name: driver_name || 'Curierul Zoom',
@@ -270,36 +272,58 @@ const markOutForDelivery = async (req, res, next) => {
 };
 
 /**
- * Mark order as delivered
+ * Mark order as delivered with OTP validation
  * POST /api/orders/:id/delivered
+ * 
+ * REQUIRES: otp_code in request body for security handshake
+ * This ensures the recipient confirms receipt of the package
  */
 const markDelivered = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { proof_of_delivery } = req.body;
+    const { otp_code, proof_of_delivery } = req.body;
     
-    const notes = proof_of_delivery ? `POD: ${proof_of_delivery}` : null;
-    const updatedOrder = await orderService.updateOrderStatus(id, ORDER_STATUS.DELIVERED, notes);
-    
-    if (!updatedOrder) {
-      return res.status(404).json({
+    // OTP is REQUIRED for delivery confirmation
+    if (!otp_code) {
+      return res.status(400).json({
         success: false,
-        error: `Order not found: ${id}`
+        error: 'OTP code is required for delivery confirmation. Ask the recipient for their code.'
       });
     }
     
+    // Validate OTP and mark as delivered
+    const deliveredOrder = await orderService.markDelivered(id, otp_code);
+    
+    // Add proof of delivery if provided
+    if (proof_of_delivery && deliveredOrder) {
+      await orderService.updateOrderStatus(id, ORDER_STATUS.DELIVERED, `POD: ${proof_of_delivery}`);
+    }
+    
     // 🔔 Trigger WhatsApp "delivery completed" notification
-    sendStatusNotificationAsync(updatedOrder, ORDER_STATUS.DELIVERED);
+    sendStatusNotificationAsync(deliveredOrder, ORDER_STATUS.DELIVERED);
+    
+    console.log(`✅ Order ${id} delivered successfully with OTP validation`);
     
     return res.status(200).json({
       success: true,
-      message: `Order ${id} marked as delivered`,
-      data: updatedOrder,
+      message: `Order ${id} marked as delivered. OTP validated successfully.`,
+      data: deliveredOrder,
+      otp_validated: true,
       whatsapp_notification: process.env.WHATSAPP_ENABLED === 'true' ? 'queued' : 'disabled'
     });
     
   } catch (error) {
     console.error(`❌ Mark delivered error:`, error.message);
+    
+    // Handle OTP validation errors specifically
+    if (error.message.includes('OTP') || error.message.includes('Invalid') || error.message.includes('not found')) {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+        otp_validated: false
+      });
+    }
+    
     next(error);
   }
 };
