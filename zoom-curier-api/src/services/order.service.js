@@ -1,240 +1,170 @@
 /**
- * Order Service
+ * Order Model
  * 
- * Business logic layer for order operations
+ * Database operations for the orders table
  */
 
-const OrderModel = require('../models/order.model');
-
-// In-memory storage for development (when DB is not available)
-let inMemoryOrders = [];
-const USE_IN_MEMORY = process.env.USE_IN_MEMORY_DB === 'true';
+const db = require('../config/database');
 
 /**
- * Create a new order
+ * Create a new order in the database
  */
-const createOrder = async (orderData) => {
-  // Check for duplicate orders
-  const existingOrder = await getOrderByExternalId(
-    orderData.external_order_id, 
-    orderData.aggregator_source
-  );
+const create = async (orderData) => {
+  const sql = `
+    INSERT INTO orders (
+      internal_order_id, external_order_id, merchant_id, service_level,
+      status, pickup_address, delivery_address, delivery_city,
+      delivery_county, delivery_postal_code, delivery_country,
+      recipient_name, recipient_phone, recipient_email,
+      is_overflow, parent_carrier_id, aggregator_source,
+      cod_amount, cod_currency, total_weight, notes, raw_payload, otp_code
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
   
-  if (existingOrder) {
-    console.log(`⚠️ Duplicate order detected: ${orderData.external_order_id}`);
-    return existingOrder;
-  }
+  const params = [
+    orderData.internal_order_id,
+    orderData.external_order_id,
+    orderData.merchant_id || null,
+    orderData.service_level || 'lite',
+    orderData.status || 'pending',
+    orderData.pickup_address || null,
+    orderData.delivery_address,
+    orderData.delivery_city,
+    orderData.delivery_county || null,
+    orderData.delivery_postal_code || null,
+    orderData.delivery_country || 'RO',
+    orderData.recipient_name,
+    orderData.recipient_phone,
+    orderData.recipient_email || null,
+    orderData.is_overflow ? 1 : 0,
+    orderData.parent_carrier_id || null,
+    orderData.aggregator_source,
+    orderData.cod_amount || 0,
+    orderData.cod_currency || 'RON',
+    orderData.total_weight || null,
+    orderData.notes || null,
+    orderData.raw_payload ? JSON.stringify(orderData.raw_payload) : null,
+    orderData.otp_code || null
+  ];
   
-  if (USE_IN_MEMORY) {
-    // In-memory storage for development
-    const newOrder = {
-      ...orderData,
-      id: inMemoryOrders.length + 1
-    };
-    inMemoryOrders.push(newOrder);
-    console.log(`💾 Order saved to in-memory storage: ${newOrder.internal_order_id}`);
-    return newOrder;
-  }
-  
-  try {
-    const savedOrder = await OrderModel.create(orderData);
-    console.log(`💾 Order saved to database: ${savedOrder.internal_order_id}`);
-    return savedOrder;
-  } catch (error) {
-    // Fallback to in-memory if DB fails
-    console.warn(`⚠️ Database unavailable, using in-memory storage`);
-    const newOrder = {
-      ...orderData,
-      id: inMemoryOrders.length + 1
-    };
-    inMemoryOrders.push(newOrder);
-    return newOrder;
-  }
+  const result = await db.query(sql, params);
+  return { ...orderData, id: result.insertId };
 };
 
 /**
- * Get orders with filters
+ * Find order by internal ID
  */
-const getOrders = async (filters = {}, limit = 50, offset = 0) => {
-  if (USE_IN_MEMORY) {
-    let results = [...inMemoryOrders];
-    
-    if (filters.status) {
-      results = results.filter(o => o.status === filters.status);
-    }
-    if (filters.source) {
-      results = results.filter(o => o.aggregator_source === filters.source.toLowerCase());
-    }
-    if (filters.is_overflow !== undefined) {
-      results = results.filter(o => o.is_overflow === (filters.is_overflow === 'true'));
-    }
-    
-    return results.slice(offset, offset + limit);
-  }
-  
-  try {
-    return await OrderModel.findAll(filters, limit, offset);
-  } catch (error) {
-    console.warn(`⚠️ Database unavailable, using in-memory storage`);
-    return inMemoryOrders.slice(offset, offset + limit);
-  }
+const findByInternalId = async (internalOrderId) => {
+  const sql = `SELECT * FROM orders WHERE internal_order_id = ?`;
+  const results = await db.query(sql, [internalOrderId]);
+  return results[0] || null;
 };
 
 /**
- * Get order by internal ID
+ * Find order by external ID and source
  */
-const getOrderById = async (internalOrderId) => {
-  if (USE_IN_MEMORY) {
-    return inMemoryOrders.find(o => o.internal_order_id === internalOrderId) || null;
-  }
-  
-  try {
-    return await OrderModel.findByInternalId(internalOrderId);
-  } catch (error) {
-    console.warn(`⚠️ Database unavailable, using in-memory storage`);
-    return inMemoryOrders.find(o => o.internal_order_id === internalOrderId) || null;
-  }
+const findByExternalId = async (externalOrderId, source) => {
+  const sql = `SELECT * FROM orders WHERE external_order_id = ? AND aggregator_source = ?`;
+  const results = await db.query(sql, [externalOrderId, source.toLowerCase()]);
+  return results[0] || null;
 };
 
 /**
- * Get order by external ID and source
+ * Find orders with filters
  */
-const getOrderByExternalId = async (externalOrderId, source) => {
-  if (USE_IN_MEMORY) {
-    return inMemoryOrders.find(
-      o => o.external_order_id === externalOrderId && 
-           o.aggregator_source === source.toLowerCase()
-    ) || null;
+const findAll = async (filters = {}, limit = 50, offset = 0) => {
+  let sql = `SELECT * FROM orders WHERE 1=1`;
+  const params = [];
+  
+  if (filters.status) {
+    sql += ` AND status = ?`;
+    params.push(filters.status);
   }
   
-  try {
-    return await OrderModel.findByExternalId(externalOrderId, source);
-  } catch (error) {
-    console.warn(`⚠️ Database unavailable, using in-memory storage`);
-    return inMemoryOrders.find(
-      o => o.external_order_id === externalOrderId && 
-           o.aggregator_source === source.toLowerCase()
-    ) || null;
+  if (filters.source) {
+    sql += ` AND aggregator_source = ?`;
+    params.push(filters.source.toLowerCase());
   }
+  
+  if (filters.is_overflow !== undefined) {
+    sql += ` AND is_overflow = ?`;
+    params.push(filters.is_overflow === 'true' ? 1 : 0);
+  }
+  
+  if (filters.merchant_id) {
+    sql += ` AND merchant_id = ?`;
+    params.push(filters.merchant_id);
+  }
+  
+  if (filters.driver_id) {
+    sql += ` AND driver_id = ?`;
+    params.push(filters.driver_id);
+  }
+  
+  if (filters.date_from) {
+    sql += ` AND created_at >= ?`;
+    params.push(filters.date_from);
+  }
+  
+  if (filters.date_to) {
+    sql += ` AND created_at <= ?`;
+    params.push(filters.date_to);
+  }
+  
+  sql += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+  params.push(limit, offset);
+  
+  return await db.query(sql, params);
 };
 
 /**
  * Update order status
  */
-const updateOrderStatus = async (internalOrderId, status, notes = null) => {
-  if (USE_IN_MEMORY) {
-    const order = inMemoryOrders.find(o => o.internal_order_id === internalOrderId);
-    if (order) {
-      order.status = status;
-      if (notes) order.notes = notes;
-      order.updated_at = new Date().toISOString();
-    }
-    return order || null;
-  }
+const updateStatus = async (internalOrderId, status, notes = null) => {
+  const sql = `
+    UPDATE orders 
+    SET status = ?, notes = COALESCE(?, notes), updated_at = NOW()
+    WHERE internal_order_id = ?
+  `;
   
-  try {
-    return await OrderModel.updateStatus(internalOrderId, status, notes);
-  } catch (error) {
-    console.warn(`⚠️ Database unavailable, using in-memory storage`);
-    const order = inMemoryOrders.find(o => o.internal_order_id === internalOrderId);
-    if (order) {
-      order.status = status;
-      if (notes) order.notes = notes;
-      order.updated_at = new Date().toISOString();
-    }
-    return order || null;
-  }
+  await db.query(sql, [status, notes, internalOrderId]);
+  return await findByInternalId(internalOrderId);
 };
 
 /**
  * Assign driver to order
  */
 const assignDriver = async (internalOrderId, driverId) => {
-  if (USE_IN_MEMORY) {
-    const order = inMemoryOrders.find(o => o.internal_order_id === internalOrderId);
-    if (order) {
-      order.driver_id = driverId;
-      order.status = 'assigned';
-      order.updated_at = new Date().toISOString();
-    }
-    return order || null;
-  }
+  const sql = `
+    UPDATE orders 
+    SET driver_id = ?, status = 'assigned', updated_at = NOW()
+    WHERE internal_order_id = ?
+  `;
   
-  try {
-    return await OrderModel.assignDriver(internalOrderId, driverId);
-  } catch (error) {
-    console.warn(`⚠️ Database unavailable, using in-memory storage`);
-    const order = inMemoryOrders.find(o => o.internal_order_id === internalOrderId);
-    if (order) {
-      order.driver_id = driverId;
-      order.status = 'assigned';
-      order.updated_at = new Date().toISOString();
-    }
-    return order || null;
-  }
+  await db.query(sql, [driverId, internalOrderId]);
+  return await findByInternalId(internalOrderId);
 };
 
 /**
  * Cancel order
  */
-const cancelOrder = async (internalOrderId, reason = null) => {
-  if (USE_IN_MEMORY) {
-    const order = inMemoryOrders.find(o => o.internal_order_id === internalOrderId);
-    if (order) {
-      order.status = 'cancelled';
-      order.notes = `${order.notes || ''} | Cancelled: ${reason || 'No reason provided'}`;
-      order.updated_at = new Date().toISOString();
-    }
-    return order || null;
-  }
+const cancel = async (internalOrderId, reason = null) => {
+  const sql = `
+    UPDATE orders 
+    SET status = 'cancelled', notes = CONCAT(COALESCE(notes, ''), ' | Cancelled: ', COALESCE(?, 'No reason provided')), updated_at = NOW()
+    WHERE internal_order_id = ?
+  `;
   
-  try {
-    return await OrderModel.cancel(internalOrderId, reason);
-  } catch (error) {
-    console.warn(`⚠️ Database unavailable, using in-memory storage`);
-    const order = inMemoryOrders.find(o => o.internal_order_id === internalOrderId);
-    if (order) {
-      order.status = 'cancelled';
-      order.notes = `${order.notes || ''} | Cancelled: ${reason || 'No reason provided'}`;
-      order.updated_at = new Date().toISOString();
-    }
-    return order || null;
-  }
-};
-
-/**
- * Get order statistics
- */
-const getOrderStats = async () => {
-  const orders = USE_IN_MEMORY ? inMemoryOrders : await getOrders({}, 10000, 0);
-  
-  return {
-    total: orders.length,
-    by_status: {
-      pending: orders.filter(o => o.status === 'pending').length,
-      assigned: orders.filter(o => o.status === 'assigned').length,
-      in_transit: orders.filter(o => o.status === 'in_transit').length,
-      delivered: orders.filter(o => o.status === 'delivered').length,
-      cancelled: orders.filter(o => o.status === 'cancelled').length
-    },
-    by_source: {
-      gomag: orders.filter(o => o.aggregator_source === 'gomag').length,
-      shopify: orders.filter(o => o.aggregator_source === 'shopify').length,
-      woocommerce: orders.filter(o => o.aggregator_source === 'woocommerce').length,
-      innoship: orders.filter(o => o.aggregator_source === 'innoship').length,
-      overflow_in: orders.filter(o => o.aggregator_source === 'overflow_in').length
-    },
-    overflow_orders: orders.filter(o => o.is_overflow).length
-  };
+  await db.query(sql, [reason, internalOrderId]);
+  return await findByInternalId(internalOrderId);
 };
 
 module.exports = {
-  createOrder,
-  getOrders,
-  getOrderById,
-  getOrderByExternalId,
-  updateOrderStatus,
+  create,
+  findByInternalId,
+  findByExternalId,
+  findAll,
+  updateStatus,
   assignDriver,
-  cancelOrder,
-  getOrderStats
+  cancel
 };
