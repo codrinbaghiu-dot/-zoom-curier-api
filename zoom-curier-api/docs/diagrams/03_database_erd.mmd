@@ -1,0 +1,129 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#FF9800'}}}%%
+
+erDiagram
+    MERCHANTS {
+        int id PK "Auto-increment"
+        varchar name "Nume comerciant"
+        varchar email "Email contact"
+        varchar phone "Telefon"
+        varchar address "Adresa sediu"
+        varchar city "Oraș"
+        varchar api_key UK "Cheie API unică"
+        varchar webhook_url "URL notificări"
+        varchar platform "gomag/shopify/woo"
+        boolean is_active "Activ/Inactiv"
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    DRIVERS {
+        int id PK "Auto-increment"
+        varchar name "Nume curier"
+        varchar email "Email"
+        varchar phone "Telefon (obligatoriu)"
+        varchar vehicle_type "Tip vehicul"
+        varchar vehicle_plate "Nr. înmatriculare"
+        int zone_id FK "Zona de operare"
+        boolean is_active "Disponibil"
+        decimal current_lat "Latitudine GPS"
+        decimal current_lng "Longitudine GPS"
+        timestamp last_location_update
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    ORDERS {
+        int id PK "Auto-increment"
+        varchar internal_order_id UK "ZC-YYYYMMDD-xxxx"
+        varchar external_order_id "ID din platformă"
+        int merchant_id FK "Comerciant"
+        int driver_id FK "Curier alocat"
+        enum service_level "lite/heavy/cargo"
+        enum status "pending/assigned/in_transit/delivered/cancelled"
+        varchar pickup_address "Adresa ridicare"
+        varchar delivery_address "Adresa livrare"
+        varchar delivery_city "Oraș livrare"
+        varchar delivery_county "Județ"
+        varchar delivery_postal_code "Cod poștal"
+        varchar delivery_country "Țară (RO default)"
+        varchar recipient_name "Nume destinatar"
+        varchar recipient_phone "Telefon destinatar"
+        varchar recipient_email "Email destinatar"
+        boolean is_overflow "Comandă overflow"
+        int parent_carrier_id FK "Curier partener"
+        varchar aggregator_source "gomag/shopify/innoship"
+        decimal cod_amount "Suma ramburs"
+        varchar cod_currency "RON/EUR"
+        decimal total_weight "Greutate kg"
+        text notes "Observații"
+        json raw_payload "Payload original"
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    PARTNER_CARRIERS {
+        int id PK "Auto-increment"
+        varchar name "Nume curier partener"
+        varchar code UK "FAN/SAMEDAY/CARGUS"
+        varchar api_endpoint "URL API"
+        varchar api_key "Cheie API"
+        varchar webhook_url "URL notificări"
+        boolean is_active "Activ"
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    ORDER_STATUS_HISTORY {
+        int id PK "Auto-increment"
+        int order_id FK "Comandă"
+        varchar status "Status nou"
+        text notes "Observații"
+        varchar changed_by "Cine a schimbat"
+        timestamp created_at
+    }
+
+    ZONES {
+        int id PK "Auto-increment"
+        varchar name "Nume zonă"
+        varchar city "Oraș"
+        json polygon "GeoJSON boundaries"
+        decimal base_price "Preț bază"
+        boolean is_active "Activă"
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    INVOICES {
+        int id PK "Auto-increment"
+        int merchant_id FK "Comerciant"
+        varchar invoice_number UK "Număr factură"
+        date period_start "Început perioadă"
+        date period_end "Sfârșit perioadă"
+        decimal total_deliveries "Nr. livrări"
+        decimal total_amount "Sumă totală"
+        decimal cod_collected "COD încasat"
+        decimal net_payable "De plătit net"
+        enum status "draft/sent/paid"
+        timestamp created_at
+        timestamp paid_at
+    }
+
+    WHATSAPP_LOGS {
+        int id PK "Auto-increment"
+        int order_id FK "Comandă"
+        varchar template_name "Nume template"
+        varchar recipient_phone "Telefon destinatar"
+        varchar message_id "ID mesaj Meta"
+        enum status "sent/delivered/read/failed"
+        json response "Răspuns API"
+        timestamp created_at
+    }
+
+    %% Relationships
+    MERCHANTS ||--o{ ORDERS : "plasează"
+    DRIVERS ||--o{ ORDERS : "livrează"
+    ORDERS ||--o{ ORDER_STATUS_HISTORY : "are istoric"
+    PARTNER_CARRIERS ||--o{ ORDERS : "overflow din"
+    ZONES ||--o{ DRIVERS : "operează în"
+    MERCHANTS ||--o{ INVOICES : "primește"
+    ORDERS ||--o{ WHATSAPP_LOGS : "notifică"

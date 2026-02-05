@@ -1,0 +1,122 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4CAF50', 'primaryTextColor': '#fff', 'primaryBorderColor': '#388E3C', 'lineColor': '#666', 'secondaryColor': '#2196F3', 'tertiaryColor': '#FFC107'}}}%%
+
+flowchart TB
+    subgraph SOURCES["📦 Surse Comenzi (P0-P1)"]
+        direction LR
+        GOMAG[("🛒 Gomag<br/>România #1")]
+        SHOPIFY[("🛍️ Shopify<br/>Internațional")]
+        WOOCOMMERCE[("🔌 WooCommerce<br/>Self-hosted")]
+        INNOSHIP[("📊 Innoship<br/>Agregator")]
+    end
+
+    subgraph OVERFLOW["🔄 Overflow Partners (P3)"]
+        direction LR
+        FAN[("📮 Fan Courier")]
+        SAMEDAY[("⚡ Sameday")]
+        CARGUS[("📦 Cargus")]
+    end
+
+    subgraph ZOOM_API["🚀 Zoom Curier API"]
+        direction TB
+        
+        subgraph WEBHOOKS["Webhook Layer"]
+            WH_UNIVERSAL["POST /webhooks/orders<br/>Universal Endpoint"]
+            WH_SPECIFIC["Platform-Specific<br/>Endpoints"]
+        end
+        
+        subgraph CORE["Core Services"]
+            NORMALIZER["🔄 Universal Integrator<br/>normalizer.service.js"]
+            ORDER_SVC["📋 Order Service<br/>order.service.js"]
+            WHATSAPP_SVC["📱 WhatsApp Service<br/>whatsapp.service.js"]
+        end
+        
+        subgraph API_ROUTES["API Routes"]
+            ORDERS_API["GET/PATCH /orders<br/>Order Management"]
+            DRIVER_API["POST /orders/:id/assign<br/>Driver Assignment"]
+            DELIVERY_API["POST /orders/:id/delivered<br/>Delivery Lifecycle"]
+        end
+    end
+
+    subgraph DATABASE["💾 Database Layer"]
+        MYSQL[("MySQL/MariaDB<br/>zoom_curier_db")]
+        ORDERS_TBL["📋 orders"]
+        MERCHANTS_TBL["🏪 merchants"]
+        DRIVERS_TBL["🚗 drivers"]
+        CARRIERS_TBL["🚚 partner_carriers"]
+    end
+
+    subgraph NOTIFICATIONS["📱 LeadXpress WhatsApp"]
+        META_API["Meta Business API<br/>graph.facebook.com"]
+        TEMPLATES["Message Templates<br/>7 Lifecycle Events"]
+    end
+
+    subgraph CUSTOMER["👤 Customer Experience"]
+        WHATSAPP_APP["WhatsApp App"]
+        TRACKING["🔗 Tracking Page<br/>curier-local.ro/track"]
+        FEEDBACK["⭐ Feedback Page<br/>curier-local.ro/feedback"]
+    end
+
+    subgraph DRIVER_APP["🚗 Driver Interface"]
+        DRIVER_MOBILE["Driver Mobile App<br/>(Future)"]
+        DRIVER_WEB["Driver Web Panel<br/>(Future)"]
+    end
+
+    %% Connections - Sources to API
+    GOMAG -->|"Webhook"| WH_UNIVERSAL
+    SHOPIFY -->|"Webhook"| WH_UNIVERSAL
+    WOOCOMMERCE -->|"Webhook"| WH_UNIVERSAL
+    INNOSHIP -->|"API"| WH_SPECIFIC
+
+    %% Overflow connections
+    FAN -->|"Overflow IN"| WH_SPECIFIC
+    SAMEDAY -->|"Overflow IN"| WH_SPECIFIC
+    
+    %% Internal API flow
+    WH_UNIVERSAL --> NORMALIZER
+    WH_SPECIFIC --> NORMALIZER
+    NORMALIZER --> ORDER_SVC
+    ORDER_SVC --> MYSQL
+    
+    %% Database tables
+    MYSQL --- ORDERS_TBL
+    MYSQL --- MERCHANTS_TBL
+    MYSQL --- DRIVERS_TBL
+    MYSQL --- CARRIERS_TBL
+
+    %% WhatsApp flow
+    ORDER_SVC -->|"Trigger"| WHATSAPP_SVC
+    WHATSAPP_SVC -->|"API Call"| META_API
+    META_API --> TEMPLATES
+    TEMPLATES -->|"Send"| WHATSAPP_APP
+
+    %% Customer interactions
+    WHATSAPP_APP -->|"Click Link"| TRACKING
+    WHATSAPP_APP -->|"Click Link"| FEEDBACK
+
+    %% API Routes
+    ORDERS_API --> ORDER_SVC
+    DRIVER_API --> ORDER_SVC
+    DELIVERY_API --> ORDER_SVC
+
+    %% Driver interface (future)
+    DRIVER_MOBILE -.->|"Future"| DRIVER_API
+    DRIVER_WEB -.->|"Future"| ORDERS_API
+
+    %% Overflow OUT
+    ORDER_SVC -.->|"Overflow OUT"| FAN
+    ORDER_SVC -.->|"Overflow OUT"| SAMEDAY
+
+    %% Styling
+    classDef sourceNode fill:#4CAF50,stroke:#388E3C,color:#fff
+    classDef apiNode fill:#2196F3,stroke:#1976D2,color:#fff
+    classDef dbNode fill:#FF9800,stroke:#F57C00,color:#fff
+    classDef whatsappNode fill:#25D366,stroke:#128C7E,color:#fff
+    classDef customerNode fill:#9C27B0,stroke:#7B1FA2,color:#fff
+    classDef overflowNode fill:#607D8B,stroke:#455A64,color:#fff
+
+    class GOMAG,SHOPIFY,WOOCOMMERCE,INNOSHIP sourceNode
+    class WH_UNIVERSAL,WH_SPECIFIC,NORMALIZER,ORDER_SVC,WHATSAPP_SVC,ORDERS_API,DRIVER_API,DELIVERY_API apiNode
+    class MYSQL,ORDERS_TBL,MERCHANTS_TBL,DRIVERS_TBL,CARRIERS_TBL dbNode
+    class META_API,TEMPLATES,WHATSAPP_APP whatsappNode
+    class TRACKING,FEEDBACK customerNode
+    class FAN,SAMEDAY,CARGUS overflowNode

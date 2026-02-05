@@ -1,0 +1,110 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4CAF50', 'primaryTextColor': '#fff', 'lineColor': '#666'}}}%%
+
+flowchart LR
+    subgraph MERCHANT["🏪 Merchant"]
+        M_STORE["E-commerce Store<br/>(Gomag/Shopify/Woo)"]
+        M_ORDER["Comandă Nouă<br/>Status: Processing"]
+    end
+
+    subgraph ZOOM["🚀 Zoom Curier Platform"]
+        direction TB
+        
+        subgraph INTAKE["1️⃣ Preluare"]
+            Z_WEBHOOK["Webhook<br/>Received"]
+            Z_NORMALIZE["Normalizare<br/>Universal Integrator"]
+            Z_SAVE["Salvare DB<br/>status: pending"]
+        end
+        
+        subgraph DISPATCH["2️⃣ Dispecerat"]
+            Z_QUEUE["Coadă Comenzi<br/>Pending Orders"]
+            Z_ASSIGN["Alocare Curier<br/>status: assigned"]
+            Z_ROUTE["Optimizare Rută<br/>(Future)"]
+        end
+        
+        subgraph DELIVERY["3️⃣ Livrare"]
+            Z_PICKUP["Ridicare Colet<br/>de la Merchant"]
+            Z_TRANSIT["În Tranzit<br/>status: in_transit"]
+            Z_DELIVER["Livrare Client<br/>status: delivered"]
+        end
+        
+        subgraph BILLING["4️⃣ Facturare"]
+            Z_COD["Încasare COD<br/>(dacă e cazul)"]
+            Z_INVOICE["Generare Factură<br/>14 zile ciclu"]
+            Z_SETTLE["Decontare<br/>Merchant"]
+        end
+    end
+
+    subgraph WHATSAPP["📱 WhatsApp Notifications"]
+        direction TB
+        WA_CONFIRM["✅ Confirmare<br/>Comandă preluată"]
+        WA_DRIVER["🚗 Curier Alocat<br/>Nume + Telefon"]
+        WA_OTW["🚀 În Drum<br/>ETA + Tracking"]
+        WA_DONE["🎉 Livrat<br/>Feedback Link"]
+    end
+
+    subgraph CUSTOMER["👤 Client Final"]
+        C_WAIT["Așteaptă<br/>Coletul"]
+        C_TRACK["Urmărește<br/>Tracking"]
+        C_RECEIVE["Primește<br/>Coletul"]
+        C_FEEDBACK["Lasă<br/>Feedback"]
+    end
+
+    %% Flow: Merchant to Zoom
+    M_STORE -->|"Comandă plasată"| M_ORDER
+    M_ORDER -->|"Webhook POST"| Z_WEBHOOK
+
+    %% Flow: Intake
+    Z_WEBHOOK -->|"JSON Payload"| Z_NORMALIZE
+    Z_NORMALIZE -->|"Standardized Order"| Z_SAVE
+    Z_SAVE -->|"Order Created"| Z_QUEUE
+
+    %% WhatsApp: Confirmation
+    Z_SAVE -.->|"Trigger"| WA_CONFIRM
+    WA_CONFIRM -.->|"Send"| C_WAIT
+
+    %% Flow: Dispatch
+    Z_QUEUE -->|"Select Order"| Z_ASSIGN
+    Z_ASSIGN -->|"Driver Selected"| Z_ROUTE
+
+    %% WhatsApp: Driver Assigned
+    Z_ASSIGN -.->|"Trigger"| WA_DRIVER
+    WA_DRIVER -.->|"Send"| C_WAIT
+
+    %% Flow: Delivery
+    Z_ROUTE -->|"Start Route"| Z_PICKUP
+    Z_PICKUP -->|"Colet preluat"| Z_TRANSIT
+
+    %% WhatsApp: Out for Delivery
+    Z_TRANSIT -.->|"Trigger"| WA_OTW
+    WA_OTW -.->|"Send"| C_TRACK
+
+    %% Customer tracking
+    C_WAIT -->|"Click Link"| C_TRACK
+
+    %% Flow: Final Delivery
+    Z_TRANSIT -->|"Ajuns la client"| Z_DELIVER
+
+    %% WhatsApp: Delivered
+    Z_DELIVER -.->|"Trigger"| WA_DONE
+    WA_DONE -.->|"Send"| C_RECEIVE
+
+    %% Customer receives
+    C_TRACK -->|"Colet livrat"| C_RECEIVE
+    C_RECEIVE -->|"Click Feedback"| C_FEEDBACK
+
+    %% Flow: Billing
+    Z_DELIVER -->|"COD?"| Z_COD
+    Z_COD -->|"14 zile"| Z_INVOICE
+    Z_INVOICE -->|"Plată"| Z_SETTLE
+    Z_SETTLE -->|"Transfer"| M_STORE
+
+    %% Styling
+    classDef merchantStyle fill:#FF9800,stroke:#F57C00,color:#fff
+    classDef zoomStyle fill:#2196F3,stroke:#1976D2,color:#fff
+    classDef whatsappStyle fill:#25D366,stroke:#128C7E,color:#fff
+    classDef customerStyle fill:#9C27B0,stroke:#7B1FA2,color:#fff
+
+    class M_STORE,M_ORDER merchantStyle
+    class Z_WEBHOOK,Z_NORMALIZE,Z_SAVE,Z_QUEUE,Z_ASSIGN,Z_ROUTE,Z_PICKUP,Z_TRANSIT,Z_DELIVER,Z_COD,Z_INVOICE,Z_SETTLE zoomStyle
+    class WA_CONFIRM,WA_DRIVER,WA_OTW,WA_DONE whatsappStyle
+    class C_WAIT,C_TRACK,C_RECEIVE,C_FEEDBACK customerStyle

@@ -1,0 +1,104 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'actorBkg': '#4CAF50', 'actorTextColor': '#fff'}}}%%
+
+sequenceDiagram
+    autonumber
+    
+    participant GOMAG as 🛒 Gomag Store
+    participant WEBHOOK as 🔗 Webhook Controller
+    participant NORMALIZER as 🔄 Universal Integrator
+    participant ORDER_SVC as 📋 Order Service
+    participant DB as 💾 MySQL Database
+    participant WHATSAPP as 📱 WhatsApp Service
+    participant META as ☁️ Meta API
+    participant CLIENT as 👤 Client (WhatsApp)
+
+    Note over GOMAG,CLIENT: 📦 FLUX: Comandă Nouă → Confirmare WhatsApp
+
+    %% Step 1: Order placed in Gomag
+    GOMAG->>GOMAG: Client plasează comandă
+    Note right of GOMAG: Status: "Ready for delivery"
+
+    %% Step 2: Webhook triggered
+    GOMAG->>+WEBHOOK: POST /api/webhooks/gomag
+    Note right of WEBHOOK: Headers: x-gomag-webhook<br/>Body: order payload
+
+    %% Step 3: Detect source
+    WEBHOOK->>WEBHOOK: detectSource(payload, headers)
+    Note right of WEBHOOK: Source: GOMAG
+
+    %% Step 4: Normalize order
+    WEBHOOK->>+NORMALIZER: normalizeOrder('GOMAG', payload)
+    
+    NORMALIZER->>NORMALIZER: Extract customer data
+    NORMALIZER->>NORMALIZER: Build delivery address
+    NORMALIZER->>NORMALIZER: Parse COD amount
+    NORMALIZER->>NORMALIZER: Generate internal_order_id
+    Note right of NORMALIZER: ZC-20260204-a1b2c3d4
+
+    NORMALIZER-->>-WEBHOOK: normalizedOrder
+
+    %% Step 5: Save to database
+    WEBHOOK->>+ORDER_SVC: createOrder(normalizedOrder)
+    
+    ORDER_SVC->>ORDER_SVC: Check for duplicates
+    ORDER_SVC->>+DB: INSERT INTO orders
+    DB-->>-ORDER_SVC: { id: 1, internal_order_id: 'ZC-...' }
+    
+    ORDER_SVC-->>-WEBHOOK: savedOrder
+
+    %% Step 6: Trigger WhatsApp (async)
+    WEBHOOK->>WHATSAPP: sendOrderConfirmation(savedOrder)
+    Note right of WEBHOOK: Non-blocking async call
+
+    %% Step 7: Return response to Gomag
+    WEBHOOK-->>-GOMAG: 201 Created
+    Note right of GOMAG: { success: true,<br/>internal_order_id: 'ZC-...' }
+
+    %% Step 8: WhatsApp processing (parallel)
+    activate WHATSAPP
+    WHATSAPP->>WHATSAPP: formatPhoneNumber()
+    WHATSAPP->>WHATSAPP: buildTemplateComponents()
+    
+    WHATSAPP->>+META: POST /v18.0/{phone_id}/messages
+    Note right of META: Template: zoom_order_confirmation<br/>Params: name, order_id, address
+
+    META->>META: Validate template
+    META->>META: Queue message
+    META-->>-WHATSAPP: { messages: [{ id: 'wamid.xxx' }] }
+    
+    WHATSAPP->>+DB: INSERT INTO whatsapp_logs
+    DB-->>-WHATSAPP: Log saved
+    deactivate WHATSAPP
+
+    %% Step 9: Message delivered to client
+    META->>+CLIENT: WhatsApp Message
+    Note right of CLIENT: "Bună Ion! 👋<br/>Comanda ta #ZC-... a fost preluată..."
+    
+    CLIENT->>CLIENT: Reads message
+    CLIENT-->>-META: Read receipt
+
+    %% Divider for next flow
+    Note over GOMAG,CLIENT: 🚗 FLUX: Alocare Curier
+
+    %% Driver assignment flow
+    participant DISP as 👨‍💼 Dispecer
+    participant DRIVER_API as 🔧 Driver API
+
+    DISP->>+DRIVER_API: POST /api/orders/ZC-.../assign
+    Note right of DRIVER_API: { driver_id: 5,<br/>driver_name: "Mihai",<br/>driver_phone: "0722..." }
+
+    DRIVER_API->>+ORDER_SVC: assignDriver(orderId, driverId)
+    ORDER_SVC->>+DB: UPDATE orders SET driver_id=5, status='assigned'
+    DB-->>-ORDER_SVC: Updated
+    ORDER_SVC-->>-DRIVER_API: updatedOrder
+
+    DRIVER_API->>WHATSAPP: sendDriverAssignedNotification(order, driver)
+    DRIVER_API-->>-DISP: 200 OK
+
+    activate WHATSAPP
+    WHATSAPP->>+META: POST (zoom_driver_assigned)
+    META-->>-WHATSAPP: Sent
+    deactivate WHATSAPP
+
+    META->>CLIENT: "Curierul tău: Mihai 📱0722..."
+    Note right of CLIENT: Include buton "Sună curierul"
